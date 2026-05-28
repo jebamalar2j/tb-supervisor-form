@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>TB Supervisor Form</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
+
+  :root {
+    --teal: #0d7377;
+    --teal-light: #14a085;
+    --teal-pale: #e8f5f5;
+    --red: #c0392b;
+    --green: #27ae60;
+    --gray0: #f7f9f9;
+    --gray1: #eef2f2;
+    --gray2: #d1dede;
+    --gray3: #8fa8a8;
+    --gray4: #4a6464;
+    --dark: #1a2e2e;
+    --shadow: 0 2px 12px rgba(13,115,119,0.10);
+    --radius: 12px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--gray0);
+    color: var(--dark);
+    min-height: 100vh;
+    padding-bottom: 60px;
+  }
+
+  header {
+    background: var(--teal);
+    color: white;
+    padding: 16px 20px 14px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+  }
+  header h1 { font-size: 16px; font-weight: 600; }
+  header p  { font-size: 12px; opacity: 0.75; margin-top: 2px; }
+
+  .container { max-width: 600px; margin: 0 auto; padding: 16px; }
+
+  #setup-screen {
+    background: white;
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-top: 16px;
+    box-shadow: var(--shadow);
+  }
+  #setup-screen h2 { font-size: 16px; color: var(--teal); margin-bottom: 8px; }
+  #setup-screen p  { font-size: 13px; color: var(--gray4); margin-bottom: 16px; line-height: 1.5; }
+
+  .card {
+    background: white;
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 14px;
+    box-shadow: var(--shadow);
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--teal);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--gray1);
+  }
+
+  label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--gray4);
+    margin-bottom: 5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  select, input[type="date"], input[type="text"], input[type="password"] {
+    width: 100%;
+    padding: 11px 14px;
+    border: 1.5px solid var(--gray2);
+    border-radius: 8px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    color: var(--dark);
+    background: white;
+    margin-bottom: 14px;
+    appearance: none;
+    -webkit-appearance: none;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  select:focus, input:focus { border-color: var(--teal); }
+  select:disabled { background: var(--gray1); color: var(--gray3); }
+
+  .btn {
+    display: block;
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 8px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary { background: var(--teal); color: white; }
+  .btn-primary:disabled { background: var(--gray2); color: var(--gray3); cursor: not-allowed; }
+  .btn-success { background: var(--green); color: white; margin-top: 8px; }
+  .btn-reset {
+    display: inline-block;
+    width: auto;
+    padding: 7px 14px;
+    font-size: 12px;
+    background: none;
+    color: var(--gray3);
+    border: none;
+    font-family: 'DM Sans', sans-serif;
+    cursor: pointer;
+    text-decoration: underline;
+    margin-top: 8px;
+  }
+
+  .patient-card {
+    border: 1.5px solid var(--gray2);
+    border-radius: 10px;
+    margin-bottom: 14px;
+    overflow: hidden;
+  }
+  .patient-header {
+    background: var(--teal-pale);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+  }
+  .patient-header .nikshay {
+    font-family: 'DM Mono', monospace;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--teal);
+  }
+  .patient-header .num {
+    font-size: 11px;
+    color: var(--gray3);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .status-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--gray2);
+    flex-shrink: 0;
+    transition: background 0.2s;
+  }
+  .status-dot.filled { background: var(--green); }
+  .patient-body { padding: 16px; display: none; }
+  .patient-body.open { display: block; }
+
+  .status-bar {
+    background: var(--gray1);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .status-bar .text { font-size: 13px; color: var(--gray4); }
+  .status-bar .text strong { color: var(--dark); display: block; font-size: 15px; }
+
+  .alert {
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-bottom: 14px;
+    line-height: 1.5;
+  }
+  .alert-error   { background: #fdecea; color: var(--red); }
+  .alert-success { background: #eafaf1; color: var(--green); }
+
+  .spinner {
+    display: inline-block;
+    width: 18px; height: 18px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .hidden { display: none !important; }
+  .mt8 { margin-top: 8px; }
+  .progress { font-size: 12px; color: var(--gray3); text-align: center; margin-top: 8px; }
+  .chevron { font-size: 12px; color: var(--gray3); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>TB Supervisor Follow-up</h1>
+  <p>STLS Uniamp Nikshay Details Form</p>
+</header>
+
+<div class="container">
+
+  <!-- API Key Setup -->
+  <div id="setup-screen">
+    <h2>One-time Setup</h2>
+    <p>Enter your KoBoToolbox API key. It will be saved on this device — you won't need to enter it again.</p>
+    <label>KoBoToolbox API Key</label>
+    <input type="password" id="api-key-input" placeholder="Paste your API key here">
+    <button class="btn btn-primary" onclick="saveApiKey()">Save & Continue</button>
+  </div>
+
+  <!-- Main Form -->
+  <div id="main-form" class="hidden">
+
+    <div class="card" id="step1-card">
+      <div class="card-title">Select Facility &amp; Date</div>
+
+      <label>District</label>
+      <select id="sel-district" onchange="onDistrictChange()">
+        <option value="">— Select District —</option>
+        <option>Chennai</option>
+        <option>Kancheepuram</option>
+        <option>Thiruvallur</option>
+        <option>Tiruvannamalai</option>
+      </select>
+
+      <label>Name of TU</label>
+      <select id="sel-tu" onchange="onTuChange()" disabled>
+        <option value="">— Select TU —</option>
+      </select>
+
+      <label>Name of Site / DMC</label>
+      <select id="sel-site" disabled>
+        <option value="">— Select Site —</option>
+      </select>
+
+      <label>Date of Testing</label>
+      <input type="date" id="sel-date">
+
+      <button class="btn btn-primary" id="fetch-btn" onclick="fetchPatients()">
+        Fetch Patients
+      </button>
+      <div id="fetch-error" class="alert alert-error hidden"></div>
+      <button class="btn-reset" onclick="resetApiKey()">Change API key</button>
+    </div>
+
+    <!-- Patient Forms -->
+    <div id="step2" class="hidden">
+      <div class="status-bar">
+        <div class="text">
+          <strong id="patient-count-label"></strong>
+          <span id="patient-site-label"></span>
+        </div>
+      </div>
+
+      <div id="patient-forms"></div>
+
+      <button class="btn btn-success" id="submit-all-btn" onclick="submitAll()">
+        Submit All Patient Data
+      </button>
+      <div class="progress" id="submit-progress"></div>
+      <div id="submit-result" class="hidden mt8"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const LAB_FORM_ID        = "aZfUng9y8YP2YDUDNkB6rW";
+const SUPERVISOR_FORM_ID = "aMFPEZhHEvUS2PNpc2QAsy";
+const SUPERVISOR_VERSION = "vjsLYF8sVbPLzZkVdWT6GK";
+const EU_KC = "https://kc-eu.kobotoolbox.org";
+
+// Use a CORS proxy for reading lab data
+function apiUrl(path) {
+  return `https://eu.kobotoolbox.org${path}`;
+}
+
+const TU_BY_DISTRICT = {
+  "Chennai": ["Thiruvetriyur","Madhavaram","Tondiarpet","Kodungaiyur","Basin_Bridge","Kolathur","Padi_Manjakuppam","Aminjikarai","Mmda","Mylapore","Virugambakkam","Kodambakkam_Tu","Saidapet_West","Chinnaporur","Nanganallur","Velachery","Puzhithivakkam","Kannagi_Nagar"],
+  "Thiruvallur": ["Ammiyar_kuppam","Poonimangadu","Perampakkam","Budhur","Periyapalayam"],
+  "Kancheepuram": ["Dtc_Kanchipuram","Uthiramerur","Kundrathur","Sriperumpudur","Walajabad"],
+  "Tiruvannamalai": ["Jamunamarathur","Keelapennathur","Melpallipattu","Perungattur","Thatchur"]
+};
+
+const SITES_BY_TU = {
+  "Thiruvetriyur":["Thangal_Uphc"],"Madhavaram":["Lakshmipuram_Uphc","Samy_Nagar_Uphc"],
+  "Tondiarpet":["Korrukupet_Uphc"],"Kodungaiyur":["Sharma_Nagar"],
+  "Basin_Bridge":["BRN_Garden_UPHC"],"Kolathur":["Kolathur_Uphc"],
+  "Padi_Manjakuppam":["Veeramamunivar_UPHC_(mugapair_east)"],"Aminjikarai":["Chetpet_Uphc"],
+  "Mmda":["Bharathipuram_Uphc"],"Mylapore":["Krishnampet_Uphc"],
+  "Virugambakkam":["Virugambakkam_Uphc"],"Kodambakkam_Tu":["K.K._Nagar_UPHC"],
+  "Saidapet_West":["Ragava_Colony_UPHC"],"Chinnaporur":["Sakthinagar_UPHC"],
+  "Nanganallur":["Appavu_Street_UPHC"],"Velachery":["Sasthri_Nagar_UPHC","Taramani_UPHC"],
+  "Puzhithivakkam":["Puzhithivakkam_UPHC"],"Kannagi_Nagar":["Neelangkarai_UPHC"],
+  "Ammiyar_kuppam":["Ammaiyarkuppam_BPHC"],"Poonimangadu":["Poonimangadu_BPHC"],
+  "Perampakkam":["Perambakkam_BPHC"],"Budhur":["Budhur_BPHC"],
+  "Periyapalayam":["Periyapalayam_BPHC"],"Dtc_Kanchipuram":["Little_Kanchipuram"],
+  "Uthiramerur":["Salavakkam"],"Kundrathur":["Mangadu"],
+  "Sriperumpudur":["Vallam"],"Walajabad":["Parandur"],
+  "Jamunamarathur":["Jamunamarathur"],"Keelapennathur":["Keelapennathur"],
+  "Melpallipattu":["Melpallipattu"],"Perungattur":["Perungattur"],"Thatchur":["Thatchur"]
+};
+
+const FIELDS = [
+  { key:"CBNAAT_testing_status",         label:"CBNAAT Testing Status",           type:"select", options:["","MTB Detected","MTB Not detected"] },
+  { key:"Truenat_testing_status",        label:"Truenat Testing Status",           type:"select", options:["","MTB Detected","MTB Not detected"] },
+  { key:"Xray_testing_status",           label:"X-ray Testing Status",             type:"select", options:["","Suggestive of TB","Not suggestive of TB"] },
+  { key:"Notification",                  label:"Notification",                     type:"select", options:["","Microbiologically confirmed TB","Clinically diagnosed TB","Follow-up case","Not a case"] },
+  { key:"Rif_resistance_testing_status", label:"Rif Resistance Testing Status",    type:"select", options:["","Resistant","Not resistant","Other resistance"] },
+  { key:"Other_resistance",              label:"Other Resistance (specify)",        type:"text",   showIf: (pid) => ["Resistant","Other resistance"].includes(getVal(pid,"Rif_resistance_testing_status")) },
+  { key:"Treatment_initiated",           label:"Treatment Initiated",              type:"select", options:["","Yes","Not required"] },
+  { key:"Type_of_treatment_initiated",   label:"Type of Treatment (DS-TB/DR-TB)",  type:"select", options:["","DS-TB","DR-TB"], showIf: (pid) => getVal(pid,"Treatment_initiated")==="Yes" },
+  { key:"TruNAAT_CFU_value",             label:"TruNAAT CFU Value",                type:"text" },
+  { key:"CBNAAT_result",                 label:"CBNAAT Result",                    type:"select", options:["","Very low","Low","Medium","High"], showIf: (pid) => getVal(pid,"CBNAAT_testing_status")==="MTB Detected" },
+];
+
+let nikshayPatients = [];
+let apiKey = "";
+
+function saveApiKey() {
+  const val = document.getElementById("api-key-input").value.trim();
+  if (!val) { alert("Please enter your API key."); return; }
+  apiKey = val;
+  localStorage.setItem("kobo_api_key", val);
+  document.getElementById("setup-screen").classList.add("hidden");
+  document.getElementById("main-form").classList.remove("hidden");
+  document.getElementById("sel-date").value = new Date().toISOString().split("T")[0];
+}
+
+function resetApiKey() {
+  localStorage.removeItem("kobo_api_key");
+  apiKey = "";
+  document.getElementById("setup-screen").classList.remove("hidden");
+  document.getElementById("main-form").classList.add("hidden");
+}
+
+window.onload = () => {
+  const saved = localStorage.getItem("kobo_api_key");
+  if (saved) {
+    apiKey = saved;
+    document.getElementById("setup-screen").classList.add("hidden");
+    document.getElementById("main-form").classList.remove("hidden");
+    document.getElementById("sel-date").value = new Date().toISOString().split("T")[0];
+  }
+};
+
+function onDistrictChange() {
+  const district = document.getElementById("sel-district").value;
+  const tuSel = document.getElementById("sel-tu");
+  const siteSel = document.getElementById("sel-site");
+  tuSel.innerHTML = '<option value="">— Select TU —</option>';
+  siteSel.innerHTML = '<option value="">— Select Site —</option>';
+  siteSel.disabled = true;
+  if (!district) { tuSel.disabled = true; return; }
+  (TU_BY_DISTRICT[district]||[]).forEach(tu => {
+    tuSel.innerHTML += `<option value="${tu}">${tu.replace(/_/g," ")}</option>`;
+  });
+  tuSel.disabled = false;
+}
+
+function onTuChange() {
+  const tu = document.getElementById("sel-tu").value;
+  const siteSel = document.getElementById("sel-site");
+  siteSel.innerHTML = '<option value="">— Select Site —</option>';
+  if (!tu) { siteSel.disabled = true; return; }
+  (SITES_BY_TU[tu]||[]).forEach(s => {
+    siteSel.innerHTML += `<option value="${s}">${s.replace(/_/g," ")}</option>`;
+  });
+  siteSel.disabled = false;
+}
+
+async function fetchPatients() {
+  const district = document.getElementById("sel-district").value;
+  const tu       = document.getElementById("sel-tu").value;
+  const site     = document.getElementById("sel-site").value;
+  const date     = document.getElementById("sel-date").value;
+  const errDiv   = document.getElementById("fetch-error");
+  errDiv.classList.add("hidden");
+
+  if (!district||!tu||!site||!date) {
+    errDiv.textContent = "Please fill in all fields.";
+    errDiv.classList.remove("hidden"); return;
+  }
+
+  const btn = document.getElementById("fetch-btn");
+  btn.innerHTML = '<span class="spinner"></span>Fetching...';
+  btn.disabled = true;
+
+  try {
+    const resp = await fetch(
+      apiUrl(`/api/v2/assets/${LAB_FORM_ID}/data/?format=json&limit=5000`),
+      { headers: { "Authorization": `Token ${apiKey}` } }
+    );
+    if (resp.status === 401) throw new Error("Invalid API key. Please check and re-enter.");
+    if (!resp.ok) throw new Error(`Server error ${resp.status}`);
+    const data = await resp.json();
+
+    nikshayPatients = [];
+    for (const sub of (data.results||[])) {
+      for (const row of (sub["group_mb5pc30"]||[])) {
+        const rd    = row["group_mb5pc30/district_repeat"]||"";
+        const rs    = row["group_mb5pc30/facility_name_repeat"]||"";
+        const rdate = String(row["group_mb5pc30/Date_of_testing"]||"");
+        const nid   = row["group_mb5pc30/Patient_Ni_kshay_ID"];
+        if (rd===district && rs===site && rdate.startsWith(date) && nid) {
+          if (!nikshayPatients.find(p=>p.nid===String(nid)))
+            nikshayPatients.push({nid:String(nid)});
+        }
+      }
+    }
+
+    if (!nikshayPatients.length) {
+      errDiv.textContent = `No patients found for ${site.replace(/_/g," ")} on ${date}. Make sure the lab form has been submitted for this date.`;
+      errDiv.classList.remove("hidden");
+    } else {
+      renderPatientForms(site, date);
+    }
+  } catch(e) {
+    errDiv.textContent = "Error: " + e.message;
+    errDiv.classList.remove("hidden");
+  }
+
+  btn.innerHTML = "Fetch Patients";
+  btn.disabled = false;
+}
+
+function renderPatientForms(site, date) {
+  document.getElementById("patient-count-label").textContent =
+    `${nikshayPatients.length} patient(s) found`;
+  document.getElementById("patient-site-label").textContent =
+    `${site.replace(/_/g," ")} · ${date}`;
+
+  const container = document.getElementById("patient-forms");
+  container.innerHTML = "";
+
+  nikshayPatients.forEach((p, i) => {
+    const pid = `p${i}`;
+    let fieldsHtml = `
+      <label>Patient Ni-kshay ID</label>
+      <input type="text" value="${p.nid}" readonly style="background:#f0f8f8;color:var(--teal);font-family:'DM Mono',monospace;font-weight:500;">
+    `;
+    FIELDS.forEach(f => {
+      const wrapId = `${pid}_wrap_${f.key}`;
+      const hide   = f.showIf ? 'style="display:none"' : '';
+      if (f.type === "select") {
+        const opts = f.options.map(o=>`<option value="${o}">${o||"— Select —"}</option>`).join("");
+        fieldsHtml += `<div id="${wrapId}" ${hide}>
+          <label>${f.label}</label>
+          <select id="${pid}_${f.key}" onchange="onFieldChange('${pid}',${i})">${opts}</select>
+        </div>`;
+      } else {
+        fieldsHtml += `<div id="${wrapId}" ${hide}>
+          <label>${f.label}</label>
+          <input type="text" id="${pid}_${f.key}" placeholder="Free text" onchange="updateDot(${i})">
+        </div>`;
+      }
+    });
+
+    container.innerHTML += `
+      <div class="patient-card">
+        <div class="patient-header" onclick="togglePatient('${pid}')">
+          <div>
+            <div class="num">Patient ${i+1}</div>
+            <div class="nikshay">${p.nid}</div>
+          </div>
+          <div class="status-dot" id="dot_${pid}"></div>
+        </div>
+        <div class="patient-body ${i===0?'open':''}" id="body_${pid}">
+          ${fieldsHtml}
+        </div>
+      </div>`;
+  });
+
+  document.getElementById("step2").classList.remove("hidden");
+  document.getElementById("step2").scrollIntoView({behavior:"smooth"});
+}
+
+function togglePatient(pid) {
+  document.getElementById("body_"+pid).classList.toggle("open");
+}
+
+function getVal(pid, key) {
+  const el = document.getElementById(`${pid}_${key}`);
+  return el ? el.value : "";
+}
+
+function onFieldChange(pid, i) {
+  // Show/hide conditional fields
+  FIELDS.forEach(f => {
+    if (!f.showIf) return;
+    const wrap = document.getElementById(`${pid}_wrap_${f.key}`);
+    if (wrap) wrap.style.display = f.showIf(pid) ? "" : "none";
+  });
+  updateDot(i);
+}
+
+function updateDot(i) {
+  const pid = `p${i}`;
+  const required = ["CBNAAT_testing_status","Truenat_testing_status",
+                    "Xray_testing_status","Notification","Treatment_initiated"];
+  const filled = required.every(k => getVal(pid, k) !== "");
+  document.getElementById(`dot_${pid}`).classList.toggle("filled", filled);
+}
+
+async function submitAll() {
+  const district = document.getElementById("sel-district").value;
+  const tu       = document.getElementById("sel-tu").value;
+  const site     = document.getElementById("sel-site").value;
+  const date     = document.getElementById("sel-date").value;
+
+  const btn = document.getElementById("submit-all-btn");
+  const prog = document.getElementById("submit-progress");
+  const resultDiv = document.getElementById("submit-result");
+  btn.innerHTML = '<span class="spinner"></span>Submitting...';
+  btn.disabled = true;
+  resultDiv.classList.add("hidden");
+  prog.textContent = "";
+
+  const repeatXml = nikshayPatients.map((p,i) => {
+    const pid = `p${i}`;
+    let row = `<group_patients><Patient_Ni_kshay_ID>${esc(p.nid)}</Patient_Ni_kshay_ID>`;
+    FIELDS.forEach(f => {
+      const val = getVal(pid, f.key);
+      row += `<${f.key}>${esc(val)}</${f.key}>`;
+    });
+    return row + `</group_patients>`;
+  }).join("\n");
+
+  const uid = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36));
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<${SUPERVISOR_FORM_ID} id="${SUPERVISOR_FORM_ID}" version="${SUPERVISOR_VERSION}">
+  <formhub><uuid>${uid}</uuid></formhub>
+  <group_header>
+    <district>${esc(district)}</district>
+    <tu>${esc(tu)}</tu>
+    <site>${esc(site)}</site>
+    <Date_of_testing>${date}</Date_of_testing>
+  </group_header>
+  ${repeatXml}
+  <meta><instanceID>uuid:${uid}</instanceID></meta>
+</${SUPERVISOR_FORM_ID}>`;
+
+  try {
+    const fd = new FormData();
+    fd.append("xml_submission_file", new Blob([xml],{type:"text/xml"}), "submission.xml");
+
+    const resp = await fetch(`${EU_KC}/api/v1/submissions`, {
+      method: "POST",
+      headers: { "Authorization": `Token ${apiKey}` },
+      body: fd
+    });
+
+    if (resp.ok) {
+      resultDiv.className = "alert alert-success mt8";
+      resultDiv.textContent = `✓ Successfully submitted data for ${nikshayPatients.length} patient(s)!`;
+      resultDiv.classList.remove("hidden");
+      // Reset for next entry
+      document.getElementById("step2").classList.add("hidden");
+      document.getElementById("sel-date").value = "";
+    } else {
+      const txt = await resp.text();
+      resultDiv.className = "alert alert-error mt8";
+      resultDiv.textContent = `Error ${resp.status}: ${txt.slice(0,200)}`;
+      resultDiv.classList.remove("hidden");
+    }
+  } catch(e) {
+    resultDiv.className = "alert alert-error mt8";
+    resultDiv.textContent = "Network error: " + e.message;
+    resultDiv.classList.remove("hidden");
+  }
+
+  btn.innerHTML = "Submit All Patient Data";
+  btn.disabled = false;
+}
+
+function esc(s) {
+  return String(s||"")
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+</script>
+</body>
+</html>

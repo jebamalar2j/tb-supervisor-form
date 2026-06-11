@@ -1,0 +1,36 @@
+name: TB Nightly Sync
+
+on:
+  schedule:
+    # 2 AM IST = 8:30 PM UTC (IST is UTC+5:30)
+    - cron: '30 20 * * *'
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Date to sync (YYYY-MM-DD). Leave blank for yesterday.'
+        required: false
+        default: ''
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests gspread google-auth
+
+      - name: Create service account file
+        run: echo '${{ secrets.SERVICE_ACCOUNT_JSON }}' > service_account.json
+
+      - name: Run TB sync
+        env:
+          KOBO_API_KEY: ${{ secrets.KOBO_API_KEY }}
+          SYNC_DATE: ${{ github.event.inputs.date }}
+        run: python tb_supervisor_sheets.py $SYNC_DATE

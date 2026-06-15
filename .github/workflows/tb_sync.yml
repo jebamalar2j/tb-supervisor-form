@@ -33,4 +33,9 @@ jobs:
         env:
           KOBO_API_KEY: ${{ secrets.KOBO_API_KEY }}
           SYNC_DATE: ${{ github.event.inputs.date }}
-        run: python tb_supervisor_sheets.py $SYNC_DATE
+        run: |
+  if [ -n "$SYNC_DATE" ]; then
+    python tb_supervisor_sheets.py "$SYNC_DATE"
+  else
+    python tb_supervisor_sheets.py
+  fi

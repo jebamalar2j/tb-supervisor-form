@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 KOBO_API_KEY    = os.environ.get("KOBO_API_KEY", "YOUR_KOBO_API_KEY_HERE")
-LAB_FORM_ID     = "aZfUng9y8YP2YDUDNkB6rW"
+LAB_FORM_ID     = "aYPkk34YAhR6ZNJBhevCuQ"
 EU_API          = "https://eu.kobotoolbox.org"
 MASTER_SHEET_ID = "1y5Jqv7wZG99uV9Eo0mGQuiEOEUsch-8odadj_Knt9l0"
 

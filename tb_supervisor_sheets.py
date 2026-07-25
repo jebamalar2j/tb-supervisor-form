@@ -13,6 +13,8 @@ import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 import os
 import sys
+import smtplib
+from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -34,7 +36,7 @@ CHENNAI_2_TUS = [
 HEADERS = [
     "Date of Testing", "District", "Name of TU", "Name of Site / DMC",
     "Lab Serial No", "Patient Ni-kshay ID", "MTB Result",
-    "CBNAAT testing status", "Truenat testing status", "X-ray testing status",
+    "CBNAAT Result", "Truenat testing status", "X-ray testing status",
     "Notification", "Rif resistance testing status", "Other resistance",
     "Treatment initiated", "Type of treatment initiated",
     "TruNAAT CFU value", "CBNAAT result", "Remarks"
@@ -48,7 +50,7 @@ DROPDOWN_COLS = {
     9:  ["Suggestive of TB", "Not suggestive of TB"],
     10: ["Microbiologically confirmed TB", "Clinically diagnosed TB",
          "Follow-up case", "Not a case"],
-    11: ["Resistant", "Not resistant", "Other resistance"],
+    11: ["Resistant", "Not resistant", "Other resistance", "Indeterminate"],
     13: ["Yes", "Not required"],
     14: ["DS-TB", "DR-TB"],
     16: ["Very low", "Low", "Medium", "High"],
@@ -56,6 +58,13 @@ DROPDOWN_COLS = {
 
 KOBO_HEADERS = {"Authorization": f"Token {KOBO_API_KEY}"}
 IST = ZoneInfo("Asia/Kolkata")
+
+# --- Daily report config -----------------------------------------------
+REPORT_TABS = ["Chennai_1", "Chennai_2"]  # only active tabs; add district
+                                           # tabs here once they start testing
+REPORT_LAG_DAYS = 2  # sites enter data same day / next day / day after
+GMAIL_ADDRESS = os.environ.get("GMAIL_ADDRESS", "")
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 
 def get_sheets_client():
     try:
@@ -108,11 +117,21 @@ def fetch_all_patients(target_date):
             rdate = str(row.get("group_mb5pc30/Date_of_testing", ""))
             nid   = row.get("group_mb5pc30/Patient_Ni_kshay_ID")
             lab   = row.get("group_mb5pc30/Lab_serial_no", "")
-            mtb   = row.get("group_mb5pc30/mtb_result", "")
+            mtb_raw = row.get("group_mb5pc30/mtb_result", "")
+            ic_raw  = row.get("group_mb5pc30/IC_Detected", "")
 
-            # Clean MTB result label
-            if mtb == "mtb_postive": mtb = "MTB Positive"
-            elif mtb == "negative":  mtb = "Negative"
+            # Derive MTB Result from mtb_result (G) + IC_Detected (H):
+            #   mtb_postive              -> MTB Positive
+            #   negative + IC Detected=yes -> Negative
+            #   negative + IC Detected=no  -> Invalid
+            if mtb_raw == "mtb_postive":
+                mtb = "MTB Positive"
+            elif mtb_raw == "negative" and ic_raw == "yes":
+                mtb = "Negative"
+            elif mtb_raw == "negative" and ic_raw == "no":
+                mtb = "Invalid"
+            else:
+                mtb = ""  # unexpected/blank combination - don't guess
 
             # Match date - KoBoToolbox stores date in YYYY-MM-DD (IST)
             if rdate.startswith(target_date) and nid and str(nid) not in seen_ids:
@@ -227,6 +246,142 @@ def process_date(gc, target_date):
 
     return total_added
 
+def find_col(header, keywords):
+    """Find a column index (0-based) whose header contains any keyword,
+    case-insensitive. Used because header text has drifted slightly from
+    the HEADERS constant above (e.g. 'CBNAAT Result' vs 'CBNAAT testing
+    status') without breaking the positional writes above."""
+    for i, h in enumerate(header):
+        h_low = (h or "").strip().lower()
+        for kw in keywords:
+            if kw in h_low:
+                return i
+    return None
+
+
+def parse_sheet_date(value):
+    if not value:
+        return None
+    value = str(value).strip()
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def build_daily_report(gc, run_date):
+    """Reads the already-synced Sheet tabs (no extra KoBo calls) and
+    computes the 6 daily metrics."""
+    sh = gc.open_by_key(MASTER_SHEET_ID)
+    cutoff = run_date - timedelta(days=REPORT_LAG_DAYS)
+
+    rows = []
+    for tab_name in REPORT_TABS:
+        try:
+            ws = sh.worksheet(tab_name)
+        except Exception:
+            continue
+        values = ws.get_all_values()
+        if not values:
+            continue
+        header = [h.strip() for h in values[0]]
+
+        date_col   = find_col(header, ["date of testing"])
+        nid_col    = find_col(header, ["ni-kshay", "nikshay", "ni_kshay"])
+        mtb_col    = find_col(header, ["mtb result"])
+        cbnaat_col = find_col(header, ["cbnaat"])
+        truenat_col = find_col(header, ["truenat"])
+
+        if None in (date_col, nid_col, mtb_col):
+            print(f"  WARNING: could not find expected columns in {tab_name}, skipping for report")
+            continue
+
+        for r in values[1:]:
+            def cell(idx):
+                return r[idx].strip() if idx is not None and idx < len(r) else ""
+
+            test_date = parse_sheet_date(cell(date_col))
+            nid = cell(nid_col)
+            if not test_date or not nid:
+                continue
+
+            rows.append({
+                "nid": nid,
+                "date": test_date,
+                "mtb": cell(mtb_col),
+                "cbnaat": cell(cbnaat_col).lower(),
+                "truenat": cell(truenat_col).lower(),
+            })
+
+    till_date_rows = [r for r in rows if r["date"] <= cutoff]
+    today_rows = [r for r in rows if r["date"] == cutoff]
+
+    total_tests_today = len(today_rows)
+    total_tests_till_date = len(till_date_rows)
+    total_uniamp_positive = sum(1 for r in till_date_rows if r["mtb"] == "MTB Positive")
+
+    def naat_status(r):
+        if r["cbnaat"] == "mtb detected" or r["truenat"] == "mtb detected":
+            return "Positive"
+        if r["cbnaat"] == "mtb not detected" or r["truenat"] == "mtb not detected":
+            return "Negative"
+        return ""
+
+    total_naat_positive = sum(1 for r in rows if naat_status(r) == "Positive")
+
+    discordant = 0
+    backlog = 0
+    for r in till_date_rows:
+        naat = naat_status(r)
+        if r["mtb"] == "MTB Positive":
+            if naat == "Negative":
+                discordant += 1
+            elif naat == "":
+                backlog += 1
+        elif r["mtb"] == "Negative" and naat == "Positive":
+            discordant += 1
+
+    return {
+        "run_date": run_date,
+        "cutoff": cutoff,
+        "total_tests_today": total_tests_today,
+        "total_tests_till_date": total_tests_till_date,
+        "total_uniamp_positive": total_uniamp_positive,
+        "total_naat_positive": total_naat_positive,
+        "discordant": discordant,
+        "backlog": backlog,
+    }
+
+
+def format_whatsapp_message(m):
+    return (
+        f"*TN UniAmp N-PoC \u2013 Daily Report*\n"
+        f"_Data as on {m['cutoff'].strftime('%d-%b-%Y')} (2-day lag applied)_\n\n"
+        f"Total tests today: *{m['total_tests_today']}*\n"
+        f"Total tests till date: *{m['total_tests_till_date']}*\n"
+        f"Total positive in UniAmp: *{m['total_uniamp_positive']}*\n"
+        f"Total confirmed positive in NAAT: *{m['total_naat_positive']}*\n"
+        f"Discordant: *{m['discordant']}*\n"
+        f"Backlog to confirm in NAAT: *{m['backlog']}*"
+    )
+
+
+def send_report_email(subject, body):
+    if not GMAIL_ADDRESS or not GMAIL_APP_PASSWORD:
+        print("  WARNING: GMAIL_ADDRESS/GMAIL_APP_PASSWORD not set - skipping email")
+        return
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = GMAIL_ADDRESS
+    msg["To"] = GMAIL_ADDRESS
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+        server.send_message(msg)
+    print("  OK Report emailed")
+
+
 def main():
     print("=" * 55)
     print("  TB Supervisor - Google Sheets Populator v5")
@@ -254,6 +409,17 @@ def main():
     print(f"  {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S IST')}")
     if total > 0:
         print(f"  https://docs.google.com/spreadsheets/d/{MASTER_SHEET_ID}")
+
+    print(f"\n{'='*55}")
+    print("  Daily report")
+    print(f"{'='*55}")
+    metrics = build_daily_report(gc, run_date=datetime.now(IST).date())
+    message = format_whatsapp_message(metrics)
+    print(message)
+    send_report_email(
+        subject=f"TN UniAmp Daily Report - {metrics['run_date'].strftime('%d-%b-%Y')}",
+        body=message,
+    )
 
 if __name__ == "__main__":
     main()

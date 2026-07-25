@@ -357,14 +357,16 @@ def build_daily_report(gc, run_date):
 
 def format_whatsapp_message(m):
     return (
-        f"*TN UniAmp N-PoC \u2013 Daily Report*\n"
-        f"_Data as on {m['cutoff'].strftime('%d-%b-%Y')} (2-day lag applied)_\n\n"
-        f"Total tests today: *{m['total_tests_today']}*\n"
-        f"Total tests till date: *{m['total_tests_till_date']}*\n"
-        f"Total positive in UniAmp: *{m['total_uniamp_positive']}*\n"
-        f"Total confirmed positive in NAAT: *{m['total_naat_positive']}*\n"
-        f"Discordant: *{m['discordant']}*\n"
-        f"Backlog to confirm in NAAT: *{m['backlog']}*"
+        f"Good morning Ma'am\n"
+        f"TN UniAmp N-PoC \u2013 Daily Report\n"
+        f"Data as on {m['cutoff'].strftime('%d-%b-%Y')}\n\n"
+        f"Total tests today: {m['total_tests_today']}\n"
+        f"Total tests till date: {m['total_tests_till_date']}\n"
+        f"Total positive in UniAmp: {m['total_uniamp_positive']}\n"
+        f"Total confirmed positive in NAAT: {m['total_naat_positive']}\n"
+        f"Discordant: {m['discordant']}\n"
+        f"Backlog to confirm in NAAT: {m['backlog']}\n\n"
+        f"Thank you"
     )
 
 

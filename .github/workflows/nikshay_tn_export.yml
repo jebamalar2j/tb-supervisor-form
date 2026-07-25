@@ -1,0 +1,37 @@
+# Save as .github/workflows/nikshay_tn_export.yml
+# Runs weekly, independent of the nightly KoBo sync - reads Google
+# Sheets only, no KoBo API calls.
+
+name: Nikshay Tamil Nadu Weekly Export
+
+on:
+  schedule:
+    # 03:00 UTC Monday = 08:30 IST Monday. Adjust day/time as needed.
+    - cron: "0 3 * * 1"
+  workflow_dispatch: {}
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create service account file
+        run: echo '${{ secrets.SERVICE_ACCOUNT_JSON }}' > service_account.json
+
+      - name: Run Nikshay TN export
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: python nikshay_tn_export.py
+
+      - name: Clean up credentials
+        if: always()
+        run: rm -f service_account.json

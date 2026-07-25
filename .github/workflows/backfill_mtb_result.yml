@@ -1,0 +1,33 @@
+# Save as .github/workflows/backfill_mtb_result.yml
+# Manual trigger only - run once, then this workflow can be deleted or
+# just left unused (it never runs on a schedule).
+
+name: One-time MTB Result Backfill
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create service account file
+        run: echo '${{ secrets.SERVICE_ACCOUNT_JSON }}' > service_account.json
+
+      - name: Run backfill
+        env:
+          KOBO_API_KEY: ${{ secrets.KOBO_API_KEY }}
+        run: python backfill_mtb_result.py
+
+      - name: Clean up credentials
+        if: always()
+        run: rm -f service_account.json

@@ -91,19 +91,38 @@ def get_sheets_client():
     return gspread.authorize(creds)
 
 def get_tab_name(district, tu):
-    if district == "Chennai":
-        return "Chennai_1" if tu in CHENNAI_1_TUS else "Chennai_2"
-    return district
+    d = (district or "").strip()
+    t = (tu or "").strip()
+    if d.lower() == "chennai":
+        if t not in CHENNAI_1_TUS and t not in CHENNAI_2_TUS:
+            print(f"    WARNING: unrecognized TU '{tu}' for Chennai - routing to Chennai_2 by default, please verify")
+        return "Chennai_1" if t in CHENNAI_1_TUS else "Chennai_2"
+    if not d:
+        print("    WARNING: blank district on a submission - patient may be lost, check KoBo data")
+    return d
 
 def fetch_all_patients(target_date):
-    """Fetch ALL patients for a given IST date."""
-    print(f"\nFetching all patients for {target_date} (IST) from KoBoToolbox...")
+    """Fetch patients from KoBoToolbox.
+
+    target_date: a 'YYYY-MM-DD' string to filter to one day, or None to
+    pull every submission on the server regardless of date (used for
+    catch-up backfills when a night's sync was missed).
+    """
+    if target_date:
+        print(f"\nFetching all patients for {target_date} (IST) from KoBoToolbox...")
+    else:
+        print("\nFetching ALL patients (no date filter) from KoBoToolbox...")
+
+    submissions = []
     url = f"{EU_API}/api/v2/assets/{LAB_FORM_ID}/data/?format=json&limit=5000"
-    resp = requests.get(url, headers=KOBO_HEADERS)
-    if resp.status_code != 200:
-        print(f"  ERROR: {resp.status_code}")
-        return []
-    submissions = resp.json().get("results", [])
+    while url:
+        resp = requests.get(url, headers=KOBO_HEADERS)
+        if resp.status_code != 200:
+            print(f"  ERROR: {resp.status_code}")
+            break
+        payload = resp.json()
+        submissions.extend(payload.get("results", []))
+        url = payload.get("next")  # paginate past 5000 if present
     print(f"  {len(submissions)} total submissions on server")
 
     patients = []
@@ -134,13 +153,14 @@ def fetch_all_patients(target_date):
                 mtb = ""  # unexpected/blank combination - don't guess
 
             # Match date - KoBoToolbox stores date in YYYY-MM-DD (IST)
-            if rdate.startswith(target_date) and nid and str(nid) not in seen_ids:
+            date_matches = (target_date is None) or rdate.startswith(target_date)
+            if date_matches and nid and str(nid) not in seen_ids:
                 seen_ids.add(str(nid))
                 patients.append({
                     "district":   rd,
                     "tu":         rtu,
                     "site":       rs,
-                    "date":       target_date,
+                    "date":       rdate[:10] if rdate else (target_date or ""),
                     "nid":        str(nid),
                     "lab_serial": str(lab) if lab else "",
                     "mtb_result": str(mtb) if mtb else "",
@@ -260,14 +280,33 @@ def find_col(header, keywords):
 
 
 def parse_sheet_date(value):
-    if not value:
+    if not value and value != 0:
         return None
     value = str(value).strip()
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"):
+    if not value:
+        return None
+
+    formats = (
+        "%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y",
+        "%d-%m-%Y", "%d-%b-%Y", "%d %b %Y", "%d %B %Y",
+        "%b %d, %Y", "%B %d, %Y", "%Y/%m/%d",
+    )
+    for fmt in formats:
         try:
             return datetime.strptime(value, fmt).date()
         except ValueError:
             continue
+
+    # Google Sheets serial date number (e.g. cell formatted as plain
+    # number instead of a date string). Epoch is 1899-12-30.
+    try:
+        serial = float(value)
+        if 20000 < serial < 80000:  # sane range for ~2000-2119
+            from datetime import date as _date, timedelta as _td
+            return _date(1899, 12, 30) + _td(days=serial)
+    except ValueError:
+        pass
+
     return None
 
 
@@ -298,13 +337,30 @@ def build_daily_report(gc, run_date):
             print(f"  WARNING: could not find expected columns in {tab_name}, skipping for report")
             continue
 
+        skipped_no_date = 0
+        skipped_no_id = 0
+        bad_date_samples = []
+        total_rows_seen = 0
+
         for r in values[1:]:
             def cell(idx):
                 return r[idx].strip() if idx is not None and idx < len(r) else ""
 
-            test_date = parse_sheet_date(cell(date_col))
+            raw_date = cell(date_col)
             nid = cell(nid_col)
-            if not test_date or not nid:
+            if not raw_date and not nid:
+                continue  # fully blank row, not worth counting
+
+            total_rows_seen += 1
+            test_date = parse_sheet_date(raw_date)
+
+            if not nid:
+                skipped_no_id += 1
+                continue
+            if not test_date:
+                skipped_no_date += 1
+                if len(bad_date_samples) < 5:
+                    bad_date_samples.append(raw_date)
                 continue
 
             rows.append({
@@ -314,6 +370,14 @@ def build_daily_report(gc, run_date):
                 "cbnaat": cell(cbnaat_col).lower(),
                 "truenat": cell(truenat_col).lower(),
             })
+
+        print(
+            f"  {tab_name}: {total_rows_seen} data rows, "
+            f"{skipped_no_id} skipped (no Ni-kshay ID), "
+            f"{skipped_no_date} skipped (unparseable date)"
+        )
+        if bad_date_samples:
+            print(f"    sample unparseable date values: {bad_date_samples}")
 
     till_date_rows = [r for r in rows if r["date"] <= cutoff]
     today_rows = [r for r in rows if r["date"] == cutoff]
@@ -393,10 +457,17 @@ def main():
         print("\nERROR: Please set your KoBoToolbox API key.")
         return
 
-    # Use argument date if provided, otherwise yesterday IST
-    if len(sys.argv) > 1:
-        target_date = sys.argv[1]
-        print(f"\nUsing specified date: {target_date}")
+    # Use argument date if provided, otherwise yesterday IST.
+    # Pass "ALL" to pull every submission on the server (no date filter) -
+    # safe to run any time since existing patients are skipped by
+    # Ni-kshay ID; use this to catch up any nights the sync was missed.
+    if len(sys.argv) > 1 and sys.argv[1]:
+        if sys.argv[1].strip().upper() == "ALL":
+            target_date = None
+            print("\nCatch-up mode - pulling ALL submissions regardless of date")
+        else:
+            target_date = sys.argv[1]
+            print(f"\nUsing specified date: {target_date}")
     else:
         # At 2 AM IST we want previous day's data
         yesterday_ist = datetime.now(IST) - timedelta(days=1)

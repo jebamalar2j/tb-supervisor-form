@@ -3,12 +3,7 @@ name: TB Nightly Sync
 on:
   schedule:
     - cron: '30 20 * * *'
-  workflow_dispatch:
-    inputs:
-      date:
-        description: Date to sync YYYY-MM-DD. Leave blank for yesterday.
-        required: false
-        default: ''
+  workflow_dispatch: {}
 
 jobs:
   sync:
@@ -33,5 +28,4 @@ jobs:
           KOBO_API_KEY: ${{ secrets.KOBO_API_KEY }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          SYNC_DATE: ${{ github.event.inputs.date }}
-        run: python tb_supervisor_sheets.py $SYNC_DATE
+        run: python tb_supervisor_sheets.py

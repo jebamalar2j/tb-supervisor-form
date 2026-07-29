@@ -425,19 +425,21 @@ def build_daily_report(gc, run_date, daily_counts):
             return "Negative"
         return ""
 
-    total_naat_positive = sum(1 for r in rows if naat_status(r) == "Positive")
-
-    discordant = 0
+    total_naat_confirmed = 0
+    discordant_pos_naat_neg = 0
+    discordant_neg_naat_pos = 0
     backlog = 0
     for r in till_date_rows:
         naat = naat_status(r)
         if r["mtb"] == "MTB Positive":
-            if naat == "Negative":
-                discordant += 1
+            if naat == "Positive":
+                total_naat_confirmed += 1
+            elif naat == "Negative":
+                discordant_pos_naat_neg += 1
             elif naat == "":
                 backlog += 1
         elif r["mtb"] == "Negative" and naat == "Positive":
-            discordant += 1
+            discordant_neg_naat_pos += 1
 
     return {
         "run_date": run_date,
@@ -445,8 +447,9 @@ def build_daily_report(gc, run_date, daily_counts):
         "total_tests_today": total_tests_today,
         "total_tests_till_date": total_tests_till_date,
         "total_uniamp_positive": total_uniamp_positive,
-        "total_naat_positive": total_naat_positive,
-        "discordant": discordant,
+        "total_naat_confirmed": total_naat_confirmed,
+        "discordant_pos_naat_neg": discordant_pos_naat_neg,
+        "discordant_neg_naat_pos": discordant_neg_naat_pos,
         "backlog": backlog,
     }
 
@@ -459,8 +462,9 @@ def format_whatsapp_message(m):
         f"Total tests today: {m['total_tests_today']}\n"
         f"Total tests till date: {m['total_tests_till_date']}\n"
         f"Total positive in UniAmp: {m['total_uniamp_positive']}\n"
-        f"Total confirmed positive in NAAT: {m['total_naat_positive']}\n"
-        f"Discordant: {m['discordant']}\n"
+        f"Total confirmed positive in NAAT: {m['total_naat_confirmed']}\n"
+        f"Discordant Uniamp positive and naat negative: {m['discordant_pos_naat_neg']}\n"
+        f"Discordant uniamp negative and naat positive: {m['discordant_neg_naat_pos']}\n"
         f"Backlog to confirm in NAAT: {m['backlog']}\n\n"
         f"Thank you"
     )

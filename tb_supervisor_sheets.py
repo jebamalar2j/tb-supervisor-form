@@ -101,18 +101,11 @@ def get_tab_name(district, tu):
         print("    WARNING: blank district on a submission - patient may be lost, check KoBo data")
     return d
 
-def fetch_all_patients(target_date):
-    """Fetch patients from KoBoToolbox.
-
-    target_date: a 'YYYY-MM-DD' string to filter to one day, or None to
-    pull every submission on the server regardless of date (used for
-    catch-up backfills when a night's sync was missed).
-    """
-    if target_date:
-        print(f"\nFetching all patients for {target_date} (IST) from KoBoToolbox...")
-    else:
-        print("\nFetching ALL patients (no date filter) from KoBoToolbox...")
-
+def fetch_kobo_submissions():
+    """Single paginated bulk pull of every submission on the server.
+    Reused for both the patient sync (Sheet) and the daily test-count
+    totals (email report) - only one API call series per run."""
+    print("\nFetching all submissions from KoBoToolbox...")
     submissions = []
     url = f"{EU_API}/api/v2/assets/{LAB_FORM_ID}/data/?format=json&limit=5000"
     while url:
@@ -124,7 +117,14 @@ def fetch_all_patients(target_date):
         submissions.extend(payload.get("results", []))
         url = payload.get("next")  # paginate past 5000 if present
     print(f"  {len(submissions)} total submissions on server")
+    return submissions
 
+
+def extract_patients(submissions):
+    """One row per unique Patient Ni-kshay ID, for the Google Sheet
+    (Power BI merge only needs one NAAT-linkable row per patient - if
+    the same patient shows up across multiple test sub-pages/days, only
+    the first occurrence is kept here)."""
     patients = []
     seen_ids = set()
 
@@ -152,22 +152,46 @@ def fetch_all_patients(target_date):
             else:
                 mtb = ""  # unexpected/blank combination - don't guess
 
-            # Match date - KoBoToolbox stores date in YYYY-MM-DD (IST)
-            date_matches = (target_date is None) or rdate.startswith(target_date)
-            if date_matches and nid and str(nid) not in seen_ids:
+            row_date = rdate[:10] if rdate else ""
+
+            if nid and str(nid) not in seen_ids:
                 seen_ids.add(str(nid))
                 patients.append({
                     "district":   rd,
                     "tu":         rtu,
                     "site":       rs,
-                    "date":       rdate[:10] if rdate else (target_date or ""),
+                    "date":       row_date,
                     "nid":        str(nid),
                     "lab_serial": str(lab) if lab else "",
                     "mtb_result": str(mtb) if mtb else "",
                 })
 
-    print(f"  {len(patients)} total patient(s) found")
+    print(f"  {len(patients)} unique patient(s) found")
     return patients
+
+
+def extract_daily_test_counts(submissions):
+    """Every row in group_mb5pc30, counted by its own 'Date of testing'.
+    Each row is one individual-test sub-page (KoBo pops up N sub-pages
+    when 'No. of Test done in the day' = N) - NOT related to the
+    clinical 'Repeat Test Done' field, which is answered inside the same
+    row/sub-page and does not create an extra row. A patient can
+    legitimately appear on more than one day's sub-pages (re-presenting
+    for testing later), and each such row is a real, separate test - so
+    this is intentionally NOT deduplicated by patient ID. This is what
+    the email report's 'Total tests' figures are built from."""
+    counts = {}  # date_str -> count
+    for sub in submissions:
+        for row in sub.get("group_mb5pc30", []):
+            rdate = str(row.get("group_mb5pc30/Date_of_testing", ""))
+            nid = row.get("group_mb5pc30/Patient_Ni_kshay_ID")
+            if not rdate or not nid:
+                continue
+            d = rdate[:10]
+            counts[d] = counts.get(d, 0) + 1
+    return counts
+
+
 
 def get_or_create_tab(sh, tab_name):
     try:
@@ -182,9 +206,12 @@ def get_or_create_tab(sh, tab_name):
     return ws
 
 def get_existing_ids(ws):
+    """Set of Patient Ni-kshay IDs already in the sheet (column F). One
+    row per patient is enough - the Sheet only needs to carry MTB Result
+    + NAAT columns for the Power BI merge by Ni-kshay ID."""
     try:
         all_rows = ws.get_all_values()
-        return {str(row[5]) for row in all_rows[1:] if len(row) >= 6 and row[5]}
+        return {str(row[5]).strip() for row in all_rows[1:] if len(row) >= 6 and row[5]}
     except Exception:
         return set()
 
@@ -217,10 +244,9 @@ def add_dropdowns_to_rows(sh, ws, start_row, end_row):
         sh.batch_update({"requests": requests_body})
         print(f"    OK Dropdowns added to rows {start_row}-{end_row}")
 
-def process_date(gc, target_date):
-    patients = fetch_all_patients(target_date)
+def process_date(gc, patients):
     if not patients:
-        print(f"  No patients found for {target_date}")
+        print("  No patients found")
         return 0
 
     sh = gc.open_by_key(MASTER_SHEET_ID)
@@ -239,9 +265,11 @@ def process_date(gc, target_date):
 
         new_rows = []
         for p in tab_patients:
-            if p["nid"] in existing:
+            nid = str(p["nid"]).strip()
+            if nid in existing:
                 print(f"    Skipping {p['nid']} - already exists")
                 continue
+            existing.add(nid)
             new_rows.append([
                 p["date"], p["district"], p["tu"], p["site"],
                 p["lab_serial"], p["nid"], p["mtb_result"],
@@ -310,11 +338,18 @@ def parse_sheet_date(value):
     return None
 
 
-def build_daily_report(gc, run_date):
-    """Reads the already-synced Sheet tabs (no extra KoBo calls) and
-    computes the 6 daily metrics."""
+def build_daily_report(gc, run_date, daily_counts):
+    """Total tests today/till date come from daily_counts (raw KoBo
+    'Date of testing' row counts, including repeats - see
+    extract_daily_test_counts). Positive/NAAT/discordant/backlog stay
+    Sheet-based (one row per unique patient)."""
     sh = gc.open_by_key(MASTER_SHEET_ID)
     cutoff = run_date - timedelta(days=REPORT_LAG_DAYS)
+
+    total_tests_today = daily_counts.get(cutoff.strftime("%Y-%m-%d"), 0)
+    total_tests_till_date = sum(
+        n for d, n in daily_counts.items() if d <= cutoff.strftime("%Y-%m-%d")
+    )
 
     rows = []
     for tab_name in REPORT_TABS:
@@ -380,10 +415,7 @@ def build_daily_report(gc, run_date):
             print(f"    sample unparseable date values: {bad_date_samples}")
 
     till_date_rows = [r for r in rows if r["date"] <= cutoff]
-    today_rows = [r for r in rows if r["date"] == cutoff]
 
-    total_tests_today = len(today_rows)
-    total_tests_till_date = len(till_date_rows)
     total_uniamp_positive = sum(1 for r in till_date_rows if r["mtb"] == "MTB Positive")
 
     def naat_status(r):
@@ -457,25 +489,15 @@ def main():
         print("\nERROR: Please set your KoBoToolbox API key.")
         return
 
-    # Use argument date if provided, otherwise yesterday IST.
-    # Pass "ALL" to pull every submission on the server (no date filter) -
-    # safe to run any time since existing patients are skipped by
-    # Ni-kshay ID; use this to catch up any nights the sync was missed.
-    if len(sys.argv) > 1 and sys.argv[1]:
-        if sys.argv[1].strip().upper() == "ALL":
-            target_date = None
-            print("\nCatch-up mode - pulling ALL submissions regardless of date")
-        else:
-            target_date = sys.argv[1]
-            print(f"\nUsing specified date: {target_date}")
-    else:
-        # At 2 AM IST we want previous day's data
-        yesterday_ist = datetime.now(IST) - timedelta(days=1)
-        target_date   = yesterday_ist.strftime("%Y-%m-%d")
-        print(f"\nAuto mode - pulling yesterday's data: {target_date} (IST)")
+    print("\nPulling all KoBo submissions (every run is a full sync - "
+          "no missed-night gaps possible)")
 
     gc = get_sheets_client()
-    total = process_date(gc, target_date)
+    submissions = fetch_kobo_submissions()
+    patients = extract_patients(submissions)
+    daily_counts = extract_daily_test_counts(submissions)
+
+    total = process_date(gc, patients)
 
     print(f"\n{'='*55}")
     print(f"OK Sync complete - {total} new row(s) added")
@@ -486,7 +508,7 @@ def main():
     print(f"\n{'='*55}")
     print("  Daily report")
     print(f"{'='*55}")
-    metrics = build_daily_report(gc, run_date=datetime.now(IST).date())
+    metrics = build_daily_report(gc, run_date=datetime.now(IST).date(), daily_counts=daily_counts)
     message = format_whatsapp_message(metrics)
     print(message)
     send_report_email(
